@@ -63,20 +63,15 @@ env.Replace(
     ASFLAGS=["-x", "assembler-with-cpp"],
 
     CFLAGS=[
-        "-std=gnu99",
         "-Wpointer-arith",
-        "-Wno-implicit-function-declaration",
         "-Wl,-EL",
-        "-fno-inline-functions",
         "-nostdlib"
     ],
 
     CCFLAGS=[
-        "-Os",  # optimize for size
+        "-Os",
         "-mlongcalls",
         "-mtext-section-literals",
-        "-falign-functions=4",
-        "-U__STRICT_ANSI__",
         "-ffunction-sections",
         "-fdata-sections"
     ],
@@ -96,7 +91,6 @@ env.Replace(
     LINKFLAGS=[
         "-Os",
         "-nostdlib",
-        "-Wl,--no-check-sections",
         "-u", "call_user_start",
         "-Wl,-static",
         "-Wl,--gc-sections"
@@ -150,6 +144,24 @@ env.Append(
 
 if int(ARGUMENTS.get("PIOVERBOSE", 0)):
     env.Prepend(UPLOADERFLAGS=["-vv"])
+
+if env.subst("$FRAMEWORK") == "sming":
+    env.Replace(
+        OBJCOPY="esptool2",
+        UPLOADER=join(
+            platform.get_package_dir("tool-esptoolpy"), "esptool.py"),
+        UPLOADERFLAGS=[
+            "-p", '"$UPLOAD_PORT"',
+            "-b", "$UPLOAD_SPEED",
+            "write_flash",
+            "-ff", "${__get_board_f_flash(__env__)}m",
+            "-fm", "$BOARD_FLASH_MODE",
+            "-fs", "4m",  # @TODO: automate flash size selection in megabits
+            "0x00000", "${SOURCES[0]}",
+            "0x09000", "${SOURCES[1]}"
+        ],
+        UPLOADCMD='"$PYTHONEXE" $UPLOADER $UPLOADERFLAGS'
+    )
 
 
 #
@@ -256,8 +268,33 @@ if "PIOFRAMEWORK" in env:
     if ota_port:
         env.Replace(UPLOADCMD="$UPLOADOTACMD")
 
+elif env.subst("$FRAMEWORK") == "sming":
+    env.Append(
+        BUILDERS=dict(
+            ElfToBin=Builder(
+                action=" ".join([
+                    '"$OBJCOPY"',
+                    "-quiet", "-bin",
+                    "-boot0", "$SOURCES",
+                    "$TARGET", ".text",
+                    ".data", ".rodata"
+                ]),
+                suffix=".bin"
+            ),
+
+            ElfToLib=Builder(
+                action=" ".join([
+                    '"$OBJCOPY"',
+                    "-quiet", "-lib",
+                    "$SOURCES", "$TARGET"
+                ]),
+                suffix=".bin"
+            )
+        )
+    )
+
 # Configure native SDK
-else:
+elif "FRAMEWORK" not in env:
     env.Append(
         CPPPATH=[
             join("$SDK_ESP8266_DIR", "include"), "$PROJECTSRC_DIR"
